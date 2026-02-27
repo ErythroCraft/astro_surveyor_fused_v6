@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Astro Surveyor — Fused v5 (Tracks + Photometry + AU model + Color)</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header>
+  <div class="brand">ASTRO SURVEYOR — FUSED v5</div>
+  <nav class="topnav"><a href="tutorial.html" target="_blank">Click for Tutorial</a></nav>
+  <div id="status" class="status">Load ≥2 frames</div>
+</header>
+
+<div class="layout">
+  <aside class="panel">
+    <section>
+      <h3>Frames</h3>
+      <div id="drop" class="drop" tabindex="0" role="button">
+        Drop images here<br/><span>or click to choose (multi)</span>
+      </div>
+      <input id="files" type="file" accept="image/*" multiple />
+      <div class="row">
+        <button id="clear" class="btn ghost">Clear</button>
+        <button id="run" class="btn">Run</button>
+      </div>
+      <div class="hint">EXIF DateTimeOriginal (JPEG) is used if present; otherwise file modified time. You can edit per-frame timestamps & exposure below.</div>
+    </section>
+
+    <section>
+      <h3>Photometry</h3>
+      <div class="row">
+        <button id="pickRef" class="btn ghost">Pick reference star</button>
+      </div>
+      <label>Reference star magnitude (catalog, mag)</label>
+      <input id="refMag" type="number" value="12.00" step="0.01" />
+      <div class="grid2">
+        <div>
+          <label>Aperture r (px)</label>
+          <input id="rAp" type="number" value="5" min="1" step="1" />
+        </div>
+        <div>
+          <label>Flux mode</label>
+          <select id="fluxMode">
+            <option value="luma">Luminance</option>
+            <option value="sumrgb">Sum(R+G+B)</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div>
+          <label>BG inner (px)</label>
+          <input id="rIn" type="number" value="8" min="1" step="1" />
+        </div>
+        <div>
+          <label>BG outer (px)</label>
+          <input id="rOut" type="number" value="14" min="2" step="1" />
+        </div>
+      </div>
+      <div id="refReadout" class="readout">Ref star: <b>not set</b></div>
+    </section>
+
+    <section>
+      <h3>Detection & Tracking</h3>
+      <div class="grid2">
+        <div>
+          <label>Align ±px</label>
+          <input id="align" type="number" value="12" min="0" step="1" />
+        </div>
+        <div>
+          <label>Downsample</label>
+          <input id="ds" type="number" value="3" min="1" step="1" />
+        </div>
+      </div>
+      <label>Threshold</label>
+      <select id="thrMode">
+        <option value="auto">Auto (median + k·MAD)</option>
+        <option value="manual">Manual</option>
+      </select>
+      <div id="thrManualBox" class="grid2 hidden">
+        <div>
+          <label>Manual thr (0..255)</label>
+          <input id="thrManual" type="number" value="35" min="0" max="255" step="1" />
+        </div>
+        <div>
+          <label>k (auto)</label>
+          <input id="k" type="number" value="5.0" min="0" step="0.1" />
+        </div>
+      </div>
+      <div class="grid2">
+        <div>
+          <label>Min blob area</label>
+          <input id="minArea" type="number" value="6" min="1" step="1" />
+        </div>
+        <div>
+          <label>Match dist (px)</label>
+          <input id="matchDist" type="number" value="16" min="1" step="1" />
+        </div>
+      </div>
+      <div class="grid2">
+        <div>
+          <label>Min frames</label>
+          <input id="minLen" type="number" value="3" min="2" step="1" />
+        </div>
+        <div>
+          <label>Min disp (px)</label>
+          <input id="minDisp" type="number" value="1.0" min="0" step="0.1" />
+        </div>
+      </div>
+      <label><input id="showAll" type="checkbox" /> Show all tracks (debug, no filtering)</label>
+    </section>
+
+    <section>
+      <h3>AU / Physics model (minimal)</h3>
+      <div class="hint">
+        Constant solar irradiance at 1 AU: <b>I₁ = 1360.8 W/m²</b>.<br/>
+        Solar irradiance at distance r (AU): <span class="mono">I(r)=I₁/r²</span>.<br/>
+        Reflected-object magnitude model (minimal): <span class="mono">m = H + 5·log10(r·Δ) + P(α)</span>.
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label>r: Sun→Object (AU)</label>
+          <input id="rAU" type="number" value="1.0" min="0.001" max="900" step="0.1" />
+        </div>
+        <div>
+          <label>Δ: Object→Observer (AU)</label>
+          <input id="dAU" type="number" value="1.0" min="0.001" max="900" step="0.1" />
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label>Phase angle α (deg)</label>
+          <input id="alpha" type="number" value="0" min="0" max="180" step="1" />
+        </div>
+        <div>
+          <label>Phase strength (β, mag/deg)</label>
+          <input id="beta" type="number" value="0.04" min="0" step="0.001" />
+        </div>
+      </div>
+
+      <label>Absolute magnitude H (if known)</label>
+      <input id="H" type="number" value="10.0" step="0.01" />
+
+      <div class="row">
+        <button id="setHFromTrack" class="btn ghost">Set H from selected track</button>
+        <button id="applyModelFilter" class="btn ghost">Filter by model</button>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label>Model tolerance (±mag)</label>
+          <input id="modelTol" type="number" value="0.7" min="0" step="0.01" />
+        </div>
+        <div>
+          <label>Use linear phase term</label>
+          <select id="phaseMode">
+            <option value="linear">P(α)=β·α</option>
+            <option value="none">P(α)=0</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="physicsReadout" class="readout">I(r): <b>—</b> | m_model: <b>—</b></div>
+    </section>
+    <section>
+      <h3>AU anchor (600 AU baseline)</h3>
+      <div class="hint">
+        Baseline: <b>I(600 AU) = 0.00378 W/m²</b> (matches <span class="mono">1360.8/600²</span>).<br/>
+        Scaling (inverse square): <span class="mono">I(AU)=I(600)·(600/AU)²</span><br/>
+        Magnitude shift: <span class="mono">Δm = -2.5·log10(I(AU)/I(600)) = -5·log10(600/AU)</span><br/>
+        Expected magnitude: <span class="mono">m_exp(AU)=m600 + Δm</span>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label>Target distance (AU)</label>
+          <input id="auTarget" type="number" value="600" min="0.001" max="900" step="0.1" />
+        </div>
+        <div>
+          <label>m600 baseline (mag)</label>
+          <input id="m600" type="number" value="26.00" step="0.01" />
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label>Derived I(AU) (W/m²)</label>
+          <input id="iAtAU" type="text" value="—" readonly />
+        </div>
+        <div>
+          <label>Derived Δm vs 600 AU</label>
+          <input id="dmAtAU" type="text" value="—" readonly />
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label><input id="enableAuFilter" type="checkbox" /> Filter tracks by AU anchor</label>
+          <div class="hint">Compares <span class="mono">mag_corr</span> to <span class="mono">m_exp(AU)</span>.</div>
+        </div>
+        <div>
+          <label>Tolerance (±mag)</label>
+          <input id="magTol" type="number" value="0.7" min="0" step="0.01" />
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="setM600FromTrack" class="btn ghost">Set m600 from selected track</button>
+        <button id="applyAuFilter" class="btn ghost">Apply AU filter</button>
+      </div>
+
+      <div id="auReadout" class="readout">m_exp(AU): <b>—</b> | Δ(track): <b>—</b></div>
+    </section>
+    
+
+    <section>
+      <h3>Color / Spectral (heuristic)</h3>
+      <div class="hint">
+        From RGB we estimate a <i>pseudo</i> B−V (log-ratio heuristic), then map to O..M.
+        Optional color correction: <span class="mono">m_corr = m + C·(B−V)</span>.
+      </div>
+      <div class="grid2">
+        <div>
+          <label>Apply color correction</label>
+          <select id="colorOn">
+            <option value="off">Off</option>
+            <option value="on">On</option>
+          </select>
+        </div>
+        <div>
+          <label>Color coeff C</label>
+          <input id="C" type="number" value="0.10" min="0" step="0.01" />
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h3>Export</h3>
+      <div class="row">
+        <button id="png" class="btn ghost">PNG</button>
+        <button id="csv" class="btn ghost">CSV</button>
+        <button id="print" class="btn ghost">Print</button>
+      </div>
+    </section>
+
+    <section>
+      <h3>Frames table</h3>
+      <div class="tableWrap">
+        <table id="framesTbl">
+          <thead>
+            <tr><th>#</th><th>File</th><th>UTC</th><th>Exp(s)</th><th>Shift</th><th>T</th><th>ZP</th></tr>
+          </thead>
+          <tbody id="framesBody"><tr><td colspan="7" class="empty">No frames.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h3>Track selection</h3>
+      <div class="hint">Click a track row to select it (used by “Set H from selected track”).</div>
+    </section>
+  </aside>
+
+  <main class="viewer">
+      <div class="canvas-container">
+        <canvas id="cv" width="1024" height="1024"></canvas>
+      </div>
+    <div class="bar">
+      <div class="chip" id="cursor">x:— y:—</div>
+      <div class="chip" id="zoomChip">1×</div>
+      <input id="zoom" type="range" min="1" max="6" value="1" step="1" />
+      <div class="spacer"></div>
+      <div class="chip" id="selected">Selected: —</div>
+    </div>
+  </main>
+
+  <aside class="panel right">
+    <section>
+      <h3>Tracks</h3>
+      <div class="tableWrap">
+        <table id="tracksTbl">
+          <thead>
+            <tr>
+              <th>ID</th><th>n</th><th>speed</th>
+              <th>mag</th><th>mag_corr</th>
+              <th>m_model</th><th>Δm</th><th>m_exp(AU)</th><th>Δau</th>
+              <th>B−V*</th><th>Sp*</th><th>RGB</th>
+            </tr>
+          </thead>
+          <tbody id="tracksBody"><tr><td colspan="12" class="empty">No analysis yet.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h3>Reference tables</h3>
+      <div class="tabs">
+        <button class="tab active" data-tab="planets">Planets</button>
+        <button class="tab" data-tab="spectral">Spectral</button>
+      </div>
+      <div id="tabPlanets" class="tabPane">
+        <table class="mini" id="planetsTbl"></table>
+      </div>
+      <div id="tabSpectral" class="tabPane hidden">
+        <table class="mini" id="spectralTbl"></table>
+      </div>
+    </section>
+    <section>
+      <h3>Object inspector (WISEA-style)</h3>
+      <div class="hint">
+        Select a detected track to view a compact “WISEA-like” analysis record.
+        For true WISEA Jhhmmss.ss±ddmmss.s naming you need WCS/RA-Dec calibration; here we show a structured photometry+motion record.
+      </div>
+      <label>Found objects</label>
+      <select id="objSelect">
+        <option value="">—</option>
+      </select>
+      <div class="row">
+        <button id="copyWisea" class="btn ghost">Copy</button>
+      </div>
+      <pre id="wiseaOut" class="wisea">No object selected.</pre>
+    </section>
+
+  </aside>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

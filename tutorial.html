@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Astro Surveyor — Tutorial</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header>
+  <div class="brand">ASTRO SURVEYOR — Tutorial</div>
+  <nav class="topnav"><a href="index.html" target="_blank">Back to App</a></nav>
+  <div class="status">Step-by-step usage + formulas</div>
+</header>
+
+<div class="tutWrap">
+  <aside class="toc">
+    <div class="tocTitle">Contents</div>
+    <a href="#quickstart">Quickstart</a>
+    <a href="#pipeline">What the app does (pipeline)</a>
+    <a href="#photometry">Photometry (counts → magnitude)</a>
+    <a href="#au">AU & irradiance anchors</a>
+    <a href="#model">Reflected-object magnitude model</a>
+    <a href="#tracking">Tracking (motion between frames)</a>
+    <a href="#color">Color / spectral heuristic</a>
+    <a href="#wisea">WISEA-style inspector output</a>
+    <a href="#tips">Troubleshooting & tips</a>
+    <a href="#glossary">Glossary</a>
+  </aside>
+
+  <main class="tut">
+    <section id="quickstart">
+      <h1>Quickstart</h1>
+      <ol>
+        <li><b>Load ≥2 images</b> (Drag & Drop or file picker). The app sorts frames by time.</li>
+        <li>(Recommended) Click <b>Pick reference star</b>, then click a bright star in the canvas. Enter its <b>catalog magnitude</b>.</li>
+        <li>Press <b>Run</b>. The app will align frames, detect objects, build tracks, compute photometry, and draw motion paths.</li>
+        <li>Select a track to view a <b>WISEA-style</b> analysis record.</li>
+      </ol>
+    </section>
+
+    <section id="pipeline">
+      <h2>What the app does (pipeline)</h2>
+      <p>This app is a <b>minimal</b> multi-frame photometry + motion tool. It runs fully in your browser.</p>
+
+      <div class="card">
+        <h3>1) Frame loading & timestamps</h3>
+        <ul>
+          <li>JPEG EXIF <code>DateTimeOriginal</code> is used if present.</li>
+          <li>Otherwise, the file modified time is used.</li>
+          <li>You can edit timestamp and exposure time in the <b>Frames table</b>.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>2) Alignment (global drift compensation)</h3>
+        <p>Each frame is aligned to frame #1 using a coarse shift search (SSD on downsampled luminance). Output is a pixel shift <code>(dx,dy)</code>.</p>
+      </div>
+
+      <div class="card">
+        <h3>3) Detection (blobs)</h3>
+        <p>Pixels above threshold <code>T</code> are grouped into connected components (8-neighborhood). Each blob gets a centroid and mean RGB.</p>
+      </div>
+
+      <div class="card">
+        <h3>4) Tracking</h3>
+        <p>Blobs are matched across frames by nearest-neighbor with a maximum distance. The sequence is a <b>track</b>.</p>
+      </div>
+
+      <div class="card">
+        <h3>5) Photometry</h3>
+        <p>With a reference star, the app computes a per-frame <b>zero point</b> and then object magnitudes.</p>
+      </div>
+
+      <div class="card">
+        <h3>6) Physics layers</h3>
+        <ul>
+          <li><b>AU anchor</b>: compare track brightness to a 600 AU baseline.</li>
+          <li><b>Reflected-object model</b>: predict magnitude from <code>H</code>, <code>r</code>, <code>Δ</code>, phase.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="photometry">
+      <h2>Photometry (counts → magnitude)</h2>
+
+      <div class="card">
+        <h3>Aperture photometry</h3>
+        <pre class="formula">NetFlux = Sum(aperture) - Median(background) · N_aperturePixels</pre>
+        <p>Flux mode: Luminance or Sum(R+G+B).</p>
+      </div>
+
+      <div class="card">
+        <h3>Instrumental magnitude</h3>
+        <pre class="formula">m_inst = -2.5 · log10( NetFlux / exposureSeconds )</pre>
+      </div>
+
+      <div class="card">
+        <h3>Zero point & true magnitude</h3>
+        <pre class="formula">ZP = m_ref - m_inst(ref)
+m_true(object) = m_inst(object) + ZP</pre>
+      </div>
+    </section>
+
+    <section id="au">
+      <h2>AU & irradiance anchors</h2>
+      <pre class="formula">I(1 AU) = 1360.8 W/m²
+I(r) = I(1 AU) / r²</pre>
+
+      <pre class="formula">I(600 AU) = 1360.8 / 600² ≈ 0.00378 W/m²</pre>
+
+      <div class="card">
+        <h3>From 600 AU baseline to any AU</h3>
+        <pre class="formula">I(AU) = I(600) · (600/AU)²
+Δm = -2.5 · log10( I(AU) / I(600) )
+   = -5 · log10(600/AU)
+m_exp(AU) = m600 + Δm</pre>
+        <p>The AU anchor filter compares <code>mag_corr</code> to <code>m_exp(AU)</code> with a tolerance.</p>
+      </div>
+    </section>
+
+    <section id="model">
+      <h2>Reflected-object magnitude model</h2>
+      <pre class="formula">m = H + 5 · log10(r · Δ) + P(α)</pre>
+
+      <div class="card">
+        <h3>Linear phase term</h3>
+        <pre class="formula">P(α) = β · α</pre>
+      </div>
+
+      <div class="card">
+        <h3>Compute H from a measured track</h3>
+        <pre class="formula">H = m_corr - 5·log10(r·Δ) - P(α)</pre>
+      </div>
+    </section>
+
+    <section id="tracking">
+      <h2>Tracking (motion between frames)</h2>
+
+      <div class="card">
+        <h3>Alignment: SSD shift search</h3>
+        <pre class="formula">SSD(dx,dy) = mean( (A(x,y) - B(x-dx, y-dy))² )</pre>
+      </div>
+
+      <div class="card">
+        <h3>Auto threshold (median + k·MAD)</h3>
+        <pre class="formula">T = median + k · (1.4826 · MAD)
+MAD = median( |x - median(x)| )</pre>
+      </div>
+
+      <div class="card">
+        <h3>Track matching</h3>
+        <pre class="formula">match if distance(p_i, p_{i+1}) ≤ MatchDist</pre>
+      </div>
+    </section>
+
+    <section id="color">
+      <h2>Color / spectral heuristic</h2>
+      <pre class="formula">(B−V)* ≈ a·log10(R/G) + b·log10(G/B)
+m_corr = m + C · (B−V)*</pre>
+      <p>This is a heuristic layer for clustering (redder vs bluer). For real spectral classification you need calibrated filters/spectra.</p>
+    </section>
+
+    <section id="wisea">
+      <h2>WISEA-style inspector output</h2>
+      <p>The inspector output is a structured record containing:</p>
+      <ul>
+        <li>Pixel-based designation (<code>WISEA PXx_y</code>)</li>
+        <li>Time span and motion (px/s)</li>
+        <li>Mean magnitudes and model deltas</li>
+        <li>Settings snapshot for reproducibility</li>
+      </ul>
+      <p>For a real WISEA name (<code>WISEA Jhhmmss.ss±ddmmss.s</code>) you need WCS (pixel → RA/Dec).</p>
+    </section>
+
+    <section id="tips">
+      <h2>Troubleshooting & tips</h2>
+      <div class="card">
+        <h3>No tracks</h3>
+        <ul>
+          <li>Enable <b>Show all tracks</b> (debug).</li>
+          <li>Lower <b>Min frames</b> / <b>Min disp</b>.</li>
+          <li>Reduce threshold (lower <code>k</code> or manual <code>T</code>).</li>
+          <li>Increase <b>Match dist</b> for faster motion.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Bad magnitudes</h3>
+        <ul>
+          <li>Reference star must not be saturated.</li>
+          <li>Radii must satisfy <code>rOut &gt; rIn &gt; rAp</code>.</li>
+          <li>Set correct exposure times (or keep 1.0 for relative results).</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="glossary">
+      <h2>Glossary</h2>
+      <ul>
+        <li><b>AU</b>: Astronomical Unit (Earth–Sun distance).</li>
+        <li><b>Irradiance</b>: W/m² arriving at a surface.</li>
+        <li><b>Flux</b>: summed pixel intensity in an aperture.</li>
+        <li><b>Magnitude</b>: logarithmic brightness scale.</li>
+        <li><b>ZP</b>: zero point calibration offset.</li>
+        <li><b>H</b>: absolute magnitude (size+albedo proxy).</li>
+        <li><b>WCS</b>: pixel → sky coordinate mapping.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<script src="tutorial.js"></script>
+</body>
+</html>
