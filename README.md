@@ -67,7 +67,9 @@ How to Use (Quick)
 2. Enter Reference star magnitude (catalog mag) and set aperture radii if needed.
 3. Press Run.
 
-Make sure you setup the correct date format in your pictures. That means, calculating has got an timestamp and use the creation date of your pictures to calculate the posion.
+Make sure you have set the correct date format for your images. On Windows, you can do this in the file settings. 
+This means that the calculation must include a timestamp, and the creation date of your images must be used for position calculations as well as the correct light conditions between the sun and Earth. 
+The app reads the creation date. This allows the light conditions and movements to be triangulated based on the pixel ratios on the star charts.
 
 Inspect tracks:
 
