@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Solar-Map: Koordinaten-Analyse (JPL/c_var)</title>
+    <style>
+        body { margin: 0; background: #000105; color: #00ffcc; font-family: 'Courier New', monospace; overflow: hidden; }
+        canvas { display: block; cursor: crosshair; }
+        #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,12,24,0.96); padding: 18px; border: 1px solid #00ffcc; border-radius: 4px; width: 360px; z-index: 100; box-shadow: 0 0 30px #002222; }
+        .control-panel { border-top: 1px solid #333; padding-top: 12px; margin-top: 12px; }
+        input[type="date"] { background: #001a1a; border: 1px solid #00ffcc; color: #00ffcc; padding: 4px; font-family: inherit; font-size: 11px; width: 110px; }
+        input[type="range"] { width: 100%; accent-color: #ffcc00; margin: 8px 0; cursor: pointer; }
+        .play-btn { width: 100%; padding: 10px; border: 2px solid #ffcc00; background: transparent; color: #ffcc00; font-weight: bold; cursor: pointer; margin-bottom: 12px; width: 100%; }
+        .play-btn.active { background: #ffcc00; color: #000; }
+        .monitor { background: rgba(0,255,204,0.06); padding: 10px; border-left: 3px solid #ffcc00; font-size: 11px; line-height: 1.4; }
+        .label-row { display: flex; justify-content: space-between; font-size: 12px; align-items: center; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div style="font-weight:bold; color:#ffcc00; margin-bottom:12px; text-align:center;">ASTRO-NAVIGATOR (10X)</div>
+    
+    <button id="playBtn" class="play-btn">▶ ANIMATION STARTEN</button>
+
+    <div class="label-row"><span>Zeit-Schritt:</span> <b id="vSpeed">5.0 Tage/f</b></div>
+    <input type="range" id="speedSlider" min="0.1" max="30" step="0.1" value="5">
+
+    <div class="label-row"><span>Datum:</span><input type="date" id="currentDateInput" value="2026-03-03"></div>
+
+    <div class="control-panel">
+        <div class="label-row"><span>Stau Ω:</span> <span id="vOmega">0.000002</span></div>
+        <input type="range" id="omega" min="0" max="0.0001" step="0.000001" value="0.000002">
+        <div class="monitor" id="monitor">Koordinatensystem aktiv...</div>
+    </div>
+</div>
+
+<canvas id="solarCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('solarCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let isPlaying = false;
+    let params = { omega: 0.000002, speed: 5 };
+    const J2000 = new Date('2000-01-01T12:00:00Z');
+
+    // JPL Daten (Siderisch)
+    const planets = [
+        { name: "Merkur", dist: 0.387, speed: 4.1477, color: "#999", r: 8, p0: 1.5 },
+        { name: "Venus",  dist: 0.723, speed: 1.6252, color: "#e3bb76", r: 12, p0: 0.2 },
+        { name: "Erde",   dist: 1.000, speed: 1.0000, color: "#22aaff", r: 13, p0: 4.8 },
+        { name: "Mars",   dist: 1.524, speed: 0.5317, color: "#ff5500", r: 10, p0: 2.1 },
+        { name: "Jupiter",dist: 5.203, speed: 0.0843, color: "#ffccaa", r: 28, p0: 3.5 },
+        { name: "Planet 9", dist: 500.0, speed: 0.00005, color: "#ff00ff", r: 22, p0: 0.75, isP9: true }
+    ];
+
+    let scale = 0.4, offsetX = window.innerWidth / 2, offsetY = window.innerHeight / 2;
+    let currentTime = new Date('2026-03-03');
+    let isDragging = false, lastX, lastY;
+
+    window.addEventListener('wheel', e => {
+        e.preventDefault();
+        const zoom = e.deltaY < 0 ? 1.1 : 0.9;
+        offsetX -= (e.clientX - offsetX) * (zoom - 1);
+        offsetY -= (e.clientY - offsetY) * (zoom - 1);
+        scale *= zoom;
+    }, { passive: false });
+
+    canvas.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
+    window.addEventListener('mousemove', e => {
+        if (isDragging) { offsetX += e.clientX - lastX; offsetY += e.clientY - lastY; lastX = e.clientX; lastY = e.clientY; }
+    });
+    window.addEventListener('mouseup', () => isDragging = false);
+
+    document.getElementById('playBtn').onclick = function() {
+        isPlaying = !isPlaying;
+        this.innerText = isPlaying ? "⏸ PAUSIEREN" : "▶ STARTEN";
+        this.classList.toggle('active', isPlaying);
+    };
+
+    function draw() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (isPlaying) {
+            currentTime = new Date(currentTime.getTime() + (params.speed * 24 * 60 * 60 * 1000 / 60));
+            document.getElementById('currentDateInput').value = currentTime.toISOString().split('T')[0];
+        } else {
+            currentTime = new Date(document.getElementById('currentDateInput').value);
+        }
+
+        let dt = (currentTime - J2000) / (1000 * 60 * 60 * 24 * 365.256);
+        let c_factor = (1 - params.omega);
+
+        // Sonne
+        ctx.beginPath(); 
+        ctx.arc(offsetX, offsetY, 35 * Math.sqrt(scale), 0, Math.PI * 2);
+        ctx.fillStyle = "#ffcc00"; ctx.fill();
+
+        planets.forEach(p => {
+            let drawDist = Math.log(p.dist + 1.1) * 3500 * scale;
+            let radAngle = p.p0 + (p.speed * dt * c_factor * Math.PI * 2);
+            
+            // Berechnung der Koordinaten für die Anzeige
+            let degAngle = ((radAngle * 180 / Math.PI) % 360).toFixed(1);
+            if(degAngle < 0) degAngle = (360 - Math.abs(degAngle)).toFixed(1);
+
+            let x = offsetX + Math.cos(radAngle) * drawDist;
+            let y = offsetY + Math.sin(radAngle) * drawDist;
+
+            // Orbit
+            ctx.beginPath(); ctx.lineWidth = Math.max(0.5, 1.5 * scale);
+            ctx.strokeStyle = "rgba(0,255,204,0.12)";
+            ctx.arc(offsetX, offsetY, drawDist, 0, Math.PI * 2); ctx.stroke();
+
+            // Planet
+            let r = Math.max(2, p.r * Math.sqrt(scale));
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fillStyle = p.color; ctx.fill();
+
+            // Koordinaten-Label
+            if (scale > 0.02) {
+                ctx.fillStyle = "white"; 
+                ctx.font = `bold ${Math.max(10, 13 * Math.sqrt(scale))}px Arial`;
+                // Format: Name (Radius AE | Winkel °)
+                let label = `${p.name} (${p.dist.toFixed(2)} AE | ${degAngle}°)`;
+                ctx.fillText(label, x + r + 8, y + 5);
+            }
+        });
+
+        document.getElementById('monitor').innerHTML = 
+            `<b>DATUM:</b> ${currentTime.toLocaleDateString('de-DE')}<br>` + 
+            `<b>DRFT (c_var):</b> ${((dt * params.omega * 31557600) / 3600).toFixed(4)} h<br>` +
+            `<b>KOORDINATEN:</b> Polarsystem (r, φ)`;
+
+        requestAnimationFrame(draw);
+    }
+
+    document.getElementById('omega').oninput = e => { 
+        params.omega = +e.target.value; 
+        document.getElementById('vOmega').innerText = params.omega.toFixed(6); 
+    };
+
+    document.getElementById('speedSlider').oninput = e => {
+        params.speed = +e.target.value;
+        document.getElementById('vSpeed').innerText = params.speed.toFixed(1) + " Tage/f";
+    };
+
+    draw();
+</script>
+</body>
+</html>
